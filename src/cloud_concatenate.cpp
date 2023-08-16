@@ -31,11 +31,15 @@
 using namespace std;
 using namespace message_filters;
 
+# define pcl_isfinite(x) std::isfinite(x)
+
 std::string topic_pcl = "/tanwaylidar_undistort";
 std::string topic_imu = "/imu";
 std::string topic_gps = "/gps";
 
 ros::Publisher pub_pcl;
+ros::Publisher pub;
+ros::Publisher pub_bg;
 
 struct TanwayPCLEXPoint
 {
@@ -84,6 +88,7 @@ const int frame_num = 5;
 double oxts[frame_num][6] = {};
 double scale = 0;
 double er = 6378137.0000;
+float min_dist_ratio_ = 0.05;
 
 // 将imu四元数转换为欧拉角
 void imu_to_rpy(double x, double y, double z, double w, double* roll, double* pitch, double* yaw)
@@ -198,6 +203,58 @@ float **poses_from_oxts(Oxts oxts){
     return p;
 }
 
+void remove_bg(PointCloudEX::Ptr& cloud_bg, PointCloudEX::Ptr& curcloud){
+    PointCloudEX::Ptr cloud(new PointCloudEX);
+    PointCloudEX::Ptr cloud_fg(new PointCloudEX);
+    *cloud = *curcloud;
+    TanwayPCLEXPoint invalid;
+    invalid.x = invalid.y = invalid.z = std::numeric_limits<float>::quiet_NaN();
+    int pointNum = min({cloud->size(), cloud_bg->size()});
+    int invalidNum = 0;
+    for (size_t i = 0; i < pointNum; i++)
+    {
+        const TanwayPCLEXPoint &p_in = cloud->points[i];
+        const TanwayPCLEXPoint &p_bg = cloud_bg->points[i];
+
+        // if input point invalid -> output invalid
+        if (!(pcl_isfinite(p_in.x) && pcl_isfinite(p_in.y) && pcl_isfinite(p_in.z))){
+            continue;
+        }
+        if (!(pcl_isfinite(p_bg.x) && pcl_isfinite(p_bg.y) && pcl_isfinite(p_bg.z))){
+            continue;
+        }
+
+        // compare ratio between background and input point to threshold
+        float dist_in = p_in.getVector3fMap().norm();
+        float dist_bg = p_bg.getVector3fMap().norm();
+        float diff = dist_bg - dist_in;
+
+        if (diff < 0){
+            // point is further away than previous background
+            (*cloud_bg)[i] = p_in;
+            cloud_fg->push_back((*cloud)[i]);
+            (*cloud)[i] = invalid;
+            invalidNum++;
+        }
+        else if (diff / dist_bg < min_dist_ratio_){
+            // point is too close to background
+            cloud_fg->push_back((*cloud)[i]);
+            (*cloud)[i] = invalid;
+            invalidNum++;
+        }
+        std::cout<<invalidNum<<std::endl;
+    }
+    sensor_msgs::PointCloud2 msg;
+    pcl::toROSMsg(*cloud, msg);
+    // msg.header = cloud->header;
+    pub.publish(msg);
+
+    sensor_msgs::PointCloud2 msg_bg;
+    pcl::toROSMsg(*cloud_fg, msg_bg);
+    // msg_bg.header = cloud_bg->header;
+    pub_bg.publish(msg_bg);
+}
+
 void create_pcd(){
     sensor_msgs::PointCloud2 pcl_new_msg;  //等待发送的点云消息
     PointCloudEX mid_pcl;   //建立了一个pcl的点云，作为中间过程
@@ -206,6 +263,10 @@ void create_pcd(){
     sensor_msgs::PointCloud2::ConstPtr pcloud(new sensor_msgs::PointCloud2);
     PointCloudEX::Ptr cloudadd(new PointCloudEX);
     PointCloudEX::Ptr cloud(new PointCloudEX);
+
+    PointCloudEX::Ptr lastcloud(new PointCloudEX);
+    PointCloudEX::Ptr currentcloud(new PointCloudEX);
+    PointCloudEX::Ptr bgcloud(new PointCloudEX);
 
     for(int i = 0; i < frame_num; i++){
         float **pose;
@@ -276,6 +337,13 @@ void create_pcd(){
                 cloud->points[r].z = pc[2][0];
                 cloud->points[r].x = x * cos(yaw) + y * sin(yaw);
                 cloud->points[r].y = -x * sin(yaw) + y * cos(yaw);
+            }
+            if(num == frame_num - 2){
+                *lastcloud = *cloud;
+            }
+            else if(num == frame_num - 1){
+                *currentcloud = * cloud;
+                remove_bg(lastcloud, currentcloud);
             }
             *cloudadd = *cloudadd + *cloud;
             cloud->clear();
@@ -352,7 +420,9 @@ int main(int argc, char** argv){
     
     //建立一个发布器，主题是/new_cloud，方便之后发布调整后的点云
     pub_pcl = nh.advertise<sensor_msgs::PointCloud2>("/new_cloud", 1000);  
-    
+    pub = nh.advertise<sensor_msgs::PointCloud2>("foreground", 10);
+    pub_bg = nh.advertise<sensor_msgs::PointCloud2>("background", 10);
+
     ros::spin();
 
     return 0;
