@@ -26,69 +26,19 @@ ros::Publisher pub_fg;
 
 
 // 对4-6m的种子点，向下增长为背景
-int SegBG_(int *pLabel, pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::KdTreeFLANN<pcl::PointXYZ> &kdtree, float fSearchRadius)
+void SegBG(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
 {
-    //从较高的一些点开始从上往下增长，这样能找到一些类似树木、建筑物这样的高大背景
-    int inNum = cloud->points.size(); // 输入点云的点数
-    pcl::PointXYZ searchPoint;
+    PointCloudEX::Ptr inCloud(new PointCloudEX);
+    pcl::fromROSMsg(*Cloud, *inCloud);
 
-    // 初始化种子点，选取高度在4-6m之间的所有点，将索引存入seeds
-    std::vector<int> seeds;
-    for (int pid = 0; pid < inNum; pid++)
-    {
-        if(cloud->points[pid].z > 4)
-        {
-            pLabel[pid] = 1; // 背景
-            if (cloud->points[pid].z < 6)
-            {
-                seeds.push_back(pid);
-            }
-        }
-        else
-        {
-            pLabel[pid]=0; // 暂时归进前景
-        }
-    }
-
-    // 区域增长
-    while(seeds.size() > 0)
-    {
-        int sid = seeds[seeds.size()-1]; // 从后往前依次增长
-        seeds.pop_back();
-
-        std::vector<float> k_dis; // 存储近邻点对应距离的平方
-        std::vector<int> k_inds; // 存储查询近邻点索引
-        // t0 = clock();
-
-        // 查询point半径为radius邻域球内的点，搜索结果默认是按照距离point点的距离从近到远排序
-        if (cloud->points[sid].x < 44.8) // 限制了x的范围，对于近点和远点采用不同的半径
-            kdtree.radiusSearch(sid, fSearchRadius, k_inds, k_dis);
-        else
-            kdtree.radiusSearch(sid, 1.5*fSearchRadius, k_inds, k_dis);
-
-        for(int ii=0;ii<k_inds.size();ii++)
-        {
-            if(pLabel[k_inds[ii]]==0) // 前景=0
-            {
-                pLabel[k_inds[ii]]=1; // 归到背景=1
-                if(cloud->points[k_inds[ii]].z>0.2)//（防止增长到了近地面）地面60cm以下不参与背景分割，以防止错误的地面点导致过度分割
-                {
-                    seeds.push_back(k_inds[ii]);
-                }
-            }
-        }
-
-    }
-    return 0;
-}
-
-// 对4-6m的种子点，向下增长为背景
-void SegBG(PointCloudEX::Ptr inCloud, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtree, float fSearchRadius)
-{
     //从较高的一些点开始从上往下增长，这样能找到一些类似树木、建筑物这样的高大背景
     int inNum = inCloud->points.size(); // 输入点云的点数
     std::cout << inNum << std::endl;
     int *pLabel=(int*)calloc(inNum, sizeof(int));
+    //调用pcl的kdtree生成方法
+    pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtree;
+    kdtree.setInputCloud (inCloud);
+    float fSearchRadius = 1.5;
     TanwayPCLEXPoint searchPoint;
 
     // 背景点云和前景点云
@@ -154,10 +104,12 @@ void SegBG(PointCloudEX::Ptr inCloud, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtree
 
     sensor_msgs::PointCloud2 msg_bg;
     pcl::toROSMsg(*bgCloud, msg_bg);
+    msg_bg.header = Cloud->header;
     pub_bg.publish(msg_bg);
 
     sensor_msgs::PointCloud2 msg_fg;
     pcl::toROSMsg(*fgCloud, msg_fg);
+    msg_fg.header = Cloud->header;
     pub_fg.publish(msg_fg);
 }
 
@@ -264,13 +216,13 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     PointCloudEX::Ptr noGndCloud(new PointCloudEX);
 
     int inNum = inCloud->size();
-    float fSearchRadius = 0.5;
+    // float fSearchRadius = 0.5;
     //调用SegBG
     // int *pLabel=(int*)calloc(inNum, sizeof(int));
     //调用pcl的kdtree生成方法
-    pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtree;
-    kdtree.setInputCloud (inCloud);
-    SegBG(inCloud, kdtree, fSearchRadius);
+    // pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtree;
+    // kdtree.setInputCloud (inCloud);
+    // SegBG(inCloud, kdtree, fSearchRadius);
     // 数值待修改 
     int GndNum = 0;
     int noGndNum = 0;
@@ -373,7 +325,7 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "tanway_dynamic_filter");
     ros::NodeHandle nh;
 
-    ros::Subscriber sub = nh.subscribe(topic_pcl, 10, FilterGnd);
+    ros::Subscriber sub = nh.subscribe(topic_pcl, 10, SegBG);
     pub_g = nh.advertise<sensor_msgs::PointCloud2>("gndcloud", 10);
     pub_ng = nh.advertise<sensor_msgs::PointCloud2>("nogndcloud", 10);
     pub_bg = nh.advertise<sensor_msgs::PointCloud2>("bgcloud", 1000);
