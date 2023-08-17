@@ -10,6 +10,7 @@
 #include <pcl/common/common.h>
 #include <Eigen/Dense>
 
+#include <pcl/search/impl/flann_search.hpp>
 #include <sensor_msgs/PointCloud2.h> 
 #include <vector>
 #include "test1/dynamic_filter.h"
@@ -20,12 +21,145 @@ std::string topic_pcl = "/tanwaylidar_undistort";
 
 ros::Publisher pub_g;
 ros::Publisher pub_ng;
+ros::Publisher pub_bg;
+ros::Publisher pub_fg;
 
-// float aMaxX = 0;
-// float aMaxY = 0;
-// float aMinY = 0;
-// float aLenY = 0;
 
+// 对4-6m的种子点，向下增长为背景
+int SegBG_(int *pLabel, pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::KdTreeFLANN<pcl::PointXYZ> &kdtree, float fSearchRadius)
+{
+    //从较高的一些点开始从上往下增长，这样能找到一些类似树木、建筑物这样的高大背景
+    int inNum = cloud->points.size(); // 输入点云的点数
+    pcl::PointXYZ searchPoint;
+
+    // 初始化种子点，选取高度在4-6m之间的所有点，将索引存入seeds
+    std::vector<int> seeds;
+    for (int pid = 0; pid < inNum; pid++)
+    {
+        if(cloud->points[pid].z > 4)
+        {
+            pLabel[pid] = 1; // 背景
+            if (cloud->points[pid].z < 6)
+            {
+                seeds.push_back(pid);
+            }
+        }
+        else
+        {
+            pLabel[pid]=0; // 暂时归进前景
+        }
+    }
+
+    // 区域增长
+    while(seeds.size() > 0)
+    {
+        int sid = seeds[seeds.size()-1]; // 从后往前依次增长
+        seeds.pop_back();
+
+        std::vector<float> k_dis; // 存储近邻点对应距离的平方
+        std::vector<int> k_inds; // 存储查询近邻点索引
+        // t0 = clock();
+
+        // 查询point半径为radius邻域球内的点，搜索结果默认是按照距离point点的距离从近到远排序
+        if (cloud->points[sid].x < 44.8) // 限制了x的范围，对于近点和远点采用不同的半径
+            kdtree.radiusSearch(sid, fSearchRadius, k_inds, k_dis);
+        else
+            kdtree.radiusSearch(sid, 1.5*fSearchRadius, k_inds, k_dis);
+
+        for(int ii=0;ii<k_inds.size();ii++)
+        {
+            if(pLabel[k_inds[ii]]==0) // 前景=0
+            {
+                pLabel[k_inds[ii]]=1; // 归到背景=1
+                if(cloud->points[k_inds[ii]].z>0.2)//（防止增长到了近地面）地面60cm以下不参与背景分割，以防止错误的地面点导致过度分割
+                {
+                    seeds.push_back(k_inds[ii]);
+                }
+            }
+        }
+
+    }
+    return 0;
+}
+
+// 对4-6m的种子点，向下增长为背景
+void SegBG(PointCloudEX::Ptr inCloud, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtree, float fSearchRadius)
+{
+    //从较高的一些点开始从上往下增长，这样能找到一些类似树木、建筑物这样的高大背景
+    int inNum = inCloud->points.size(); // 输入点云的点数
+    std::cout << inNum << std::endl;
+    int *pLabel=(int*)calloc(inNum, sizeof(int));
+    TanwayPCLEXPoint searchPoint;
+
+    // 背景点云和前景点云
+    PointCloudEX::Ptr bgCloud(new PointCloudEX);
+    PointCloudEX::Ptr fgCloud(new PointCloudEX);
+
+    // 初始化种子点，选取高度在4-6m之间的所有点，将索引存入seeds
+    std::vector<int> seeds;
+    for (int pid = 0; pid < inNum; pid++)
+    {
+        if(inCloud->points[pid].z > 4)
+        {
+            pLabel[pid] = 1; // 背景
+            if (inCloud->points[pid].z < 6)
+            {
+                seeds.push_back(pid);
+            }
+        }
+        else
+        {
+            pLabel[pid]=0; // 暂时归进前景
+        }
+    }
+
+    //区域增长
+    while(seeds.size() > 0)
+    {
+        int sid = seeds[seeds.size()-1]; // 从后往前依次增长
+        seeds.pop_back();
+
+        std::vector<float> k_dis; // 存储近邻点对应距离的平方
+        std::vector<int> k_inds; // 存储查询近邻点索引
+
+        // 查询point半径为radius邻域球内的点，搜索结果默认是按照距离point点的距离从近到远排序
+        if (inCloud->points[sid].x < 44.8) // 限制了x的范围，对于近点和远点采用不同的半径
+            kdtree.radiusSearch(sid, fSearchRadius, k_inds, k_dis);
+        else
+            kdtree.radiusSearch(sid, 1.5*fSearchRadius, k_inds, k_dis);
+
+        for(int ind=0;ind<k_inds.size();ind++)
+        {
+            if(pLabel[k_inds[ind]]==0) // 前景=0
+            {
+                pLabel[k_inds[ind]]=1; // 归到背景=1
+                if(inCloud->points[k_inds[ind]].z>0.2)//（防止增长到了近地面）地面20cm以下不参与背景分割，以防止错误的地面点导致过度分割
+                {
+                    seeds.push_back(k_inds[ind]);
+                }
+            }
+        }
+    }
+    for (int pid = 0; pid < inNum; pid++){
+        if(pLabel[pid] == 1){
+            bgCloud->push_back((*inCloud)[pid]);
+        }
+        else if(pLabel[pid] == 0){
+            fgCloud->push_back((*inCloud)[pid]);
+        }
+    }
+    // 发布点云
+    std::cout << bgCloud->size() << std::endl;
+    std::cout << fgCloud->size() << std::endl;
+
+    sensor_msgs::PointCloud2 msg_bg;
+    pcl::toROSMsg(*bgCloud, msg_bg);
+    pub_bg.publish(msg_bg);
+
+    sensor_msgs::PointCloud2 msg_fg;
+    pcl::toROSMsg(*fgCloud, msg_fg);
+    pub_fg.publish(msg_fg);
+}
 
 // 区分地面点和非地面点
 // int FilterGndForPos_cor(float* GndPoints, float* noGndPoints,float*inPoints,int inNum)
@@ -130,6 +264,13 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     PointCloudEX::Ptr noGndCloud(new PointCloudEX);
 
     int inNum = inCloud->size();
+    float fSearchRadius = 0.5;
+    //调用SegBG
+    // int *pLabel=(int*)calloc(inNum, sizeof(int));
+    //调用pcl的kdtree生成方法
+    pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtree;
+    kdtree.setInputCloud (inCloud);
+    SegBG(inCloud, kdtree, fSearchRadius);
     // 数值待修改 
     int GndNum = 0;
     int noGndNum = 0;
@@ -151,11 +292,6 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     // 存每个点的索引，对应到栅格，范围[0,nx*ny)
     int *idtemp = (int*) calloc (inNum, sizeof(int)); 
 
-    // float MaxX, MinX, MaxY, MinY;
-    // MaxX = 0;
-    // MinX = 0;
-    // MaxY = 0;
-    // MinY = 0;
 
     // 初始化
     for(int i = 0; i < nx * ny; i++)
@@ -170,33 +306,6 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     // 遍历输入点云的每个点
     for(int pid = 0; pid < inNum; pid++)
     {
-        // test
-        // if((*inCloud)[pid].x > MaxX){
-        //     MaxX = (*inCloud)[pid].x;
-        // }
-        // if((*inCloud)[pid].x < MinX){
-        //     MinX = (*inCloud)[pid].x;
-        // }
-        // if((*inCloud)[pid].y > MaxY){
-        //     MaxY = (*inCloud)[pid].y;
-        // }
-        // if((*inCloud)[pid].y < MinY){
-        //     MinY = (*inCloud)[pid].y;
-        // }
-        // if(MaxX > aMaxX){
-        //     aMaxX = MaxX;
-        // }
-        // if(MaxY > aMaxY){
-        //     aMaxY = MaxY;
-        // }
-        // if(MinY < aMinY){
-        //     aMinY = MinY;
-        // }
-        // if(MaxY - MinY > aLenY){
-        //     aLenY = MaxY - MinY;
-        // }
-        //end
-
         idtemp[pid] = -1;
         // 获得每个栅格的最低高度、最高高度、点数、高度总和
         if(((*inCloud)[pid].x > 0) && ((*inCloud)[pid].x < x_len) && ((*inCloud)[pid].y > -y_len) && ((*inCloud)[pid].y < y_len)) //范围在(-x_len,x_len)之间
@@ -259,66 +368,6 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     pub_ng.publish(msg_ng);
 }
 
-int SegBG(int *pLabel, pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::KdTreeFLANN<pcl::PointXYZ> &kdtree, float fSearchRadius)
-{
-    //从较高的一些点开始从上往下增长，这样能找到一些类似树木、建筑物这样的高大背景
-    // clock_t t0, t1, tsum = 0;
-    int inNum = cloud->points.size(); // 输入点云的点数
-    pcl::PointXYZ searchPoint;
-
-    // 初始化种子点，选取高度在4-6m之间的所有点，将索引存入seeds
-    std::vector<int> seeds;
-    for (int pid = 0; pid < inNum; pid++)
-    {
-        if(cloud->points[pid].z > 4)
-        {
-            pLabel[pid] = 1; // 背景
-            if (cloud->points[pid].z < 6)
-            {
-                seeds.push_back(pid);
-            }
-        }
-        else
-        {
-            pLabel[pid]=0; // 暂时归进前景
-        }
-
-    }
-
-    // 区域增长
-    while(seeds.size() > 0)
-    {
-        int sid = seeds[seeds.size()-1]; // 从后往前依次增长
-        seeds.pop_back();
-
-        std::vector<float> k_dis; // 存储近邻点对应距离的平方
-        std::vector<int> k_inds; // 存储查询近邻点索引
-        // t0 = clock();
-
-        // 查询point半径为radius邻域球内的点，搜索结果默认是按照距离point点的距离从近到远排序
-        if (cloud->points[sid].x < 44.8) // 限制了x的范围，对于近点和远点采用不同的半径
-            kdtree.radiusSearch(sid, fSearchRadius, k_inds, k_dis);
-        else
-            kdtree.radiusSearch(sid, 1.5*fSearchRadius, k_inds, k_dis);
-
-        for(int ii=0;ii<k_inds.size();ii++)
-        {
-            if(pLabel[k_inds[ii]]==0) // 前景=0
-            {
-                pLabel[k_inds[ii]]=1; // 归到背景=1
-                if(cloud->points[k_inds[ii]].z>0.2)//（防止增长到了近地面）地面60cm以下不参与背景分割，以防止错误的地面点导致过度分割
-                {
-                    seeds.push_back(k_inds[ii]);
-                }
-            }
-        }
-
-    }
-    return 0;
-
-}
-
-
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "tanway_dynamic_filter");
@@ -327,6 +376,8 @@ int main(int argc, char **argv)
     ros::Subscriber sub = nh.subscribe(topic_pcl, 10, FilterGnd);
     pub_g = nh.advertise<sensor_msgs::PointCloud2>("gndcloud", 10);
     pub_ng = nh.advertise<sensor_msgs::PointCloud2>("nogndcloud", 10);
+    pub_bg = nh.advertise<sensor_msgs::PointCloud2>("bgcloud", 1000);
+    pub_fg = nh.advertise<sensor_msgs::PointCloud2>("fgcloud", 1000);
 
     ros::spin();
 

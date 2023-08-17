@@ -43,9 +43,9 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(TanwayPCLEXPoint,
 
 typedef pcl::PointCloud<TanwayPCLEXPoint> PointCloudEX;
 
-class DynamicFilter{
-    public:
-        int FilterGnd(PointCloudEX::Ptr& GndCloud,  PointCloudEX::Ptr& noGndCloud, sensor_msgs::PointCloud2::Ptr& Cloud, int inNum);
-
-    // private:
-};
+// class DynamicFilter{
+//     public:
+//         void FilterGnd(PointCloudEX::Ptr& GndCloud,  PointCloudEX::Ptr& noGndCloud, sensor_msgs::PointCloud2::Ptr& Cloud, int inNum);
+//         void SegBG(int *pLabel, PointCloudEX::Ptr inCloud, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtree, float fSearchRadius);
+//     // private:
+// };
