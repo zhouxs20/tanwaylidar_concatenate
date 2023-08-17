@@ -88,7 +88,7 @@ const int frame_num = 5;
 double oxts[frame_num][6] = {};
 double scale = 0;
 double er = 6378137.0000;
-float min_dist_ratio_ = 0.05;
+float min_dist_ratio_ = 0.02;
 
 // 将imu四元数转换为欧拉角
 void imu_to_rpy(double x, double y, double z, double w, double* roll, double* pitch, double* yaw)
