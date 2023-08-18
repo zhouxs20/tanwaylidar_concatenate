@@ -155,7 +155,7 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     fSearchRadius：搜索半径
     thrHeight：
 */
-SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX::Ptr cloud, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtree, float fSearchRadius, float thrHeight)
+SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX::Ptr cloud, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtree, float fSearchRadius, float thrHeight,std_msgs::Header cheader)
 {
     // 初始化种子
     std::vector<int> seeds;
@@ -212,6 +212,7 @@ SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX:
             if(pLabel[k_inds[ind]]==0)
             {
                 pLabel[k_inds[ind]]=labelId;
+                cloud->points[k_inds[ind]].intensity=labelId;
                 // cnum++;
                 cf.pnum++;
                 if(cloud->points[k_inds[ind]].z>thrHeight)//地面60cm以下不参与分割
@@ -222,6 +223,10 @@ SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX:
         }
     }
     cf.zmean/=(cf.pnum+0.000001);
+    sensor_msgs::PointCloud2 msg_sta;
+    pcl::toROSMsg(*cloud, msg_sta);
+    msg_sta.header = cheader;
+    pub_sta.publish(msg_sta);
     return cf;
 }
 
@@ -253,7 +258,7 @@ int SegObjects(PointCloudEX::Ptr cloud, std_msgs::Header cheader)
         {
             if(cloud->points[pid].z > 0.4)//高度阈值
             {
-                SClusterFeature cf = FindACluster(pLabel,pid,labelId,cloud,kdtree,fSearchRadius,0.2);
+                SClusterFeature cf = FindACluster(pLabel,pid,labelId,cloud,kdtree,fSearchRadius,0.2,cheader);
                 int isBg=0;
 
                 // cluster 分类
