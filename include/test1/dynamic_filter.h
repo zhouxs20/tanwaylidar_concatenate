@@ -43,6 +43,29 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(TanwayPCLEXPoint,
 
 typedef pcl::PointCloud<TanwayPCLEXPoint> PointCloudEX;
 
+typedef struct
+{
+    // basic
+    int pnum;
+    float xmin;
+    float xmax;
+    float ymin;
+    float ymax;
+    float zmin;
+    float zmax;
+    float zmean;
+
+    // pca
+    float d0[3];
+    float d1[3];
+    float center[3];
+    float obb[8];
+
+    // 类别
+    int cls;
+
+} SClusterFeature;
+
 // class DynamicFilter{
 //     public:
 //         void FilterGnd(PointCloudEX::Ptr& GndCloud,  PointCloudEX::Ptr& noGndCloud, sensor_msgs::PointCloud2::Ptr& Cloud, int inNum);
