@@ -54,8 +54,10 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     int noGndNum = 0;
     float dx = 1;
     float dy = 1;
-    int x_len = 300;
-    int y_len = 245;
+    // int x_len = 300;
+    // int y_len = 245;
+    int x_len = 30;
+    int y_len = 20;
     int nx = x_len / dx; //80
     int ny = 2 * y_len / dy; //10，乘2是因为范围在(-y_len,y_len)之间
     float offx = 0, offy = -y_len;
@@ -124,6 +126,10 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
                 noGndNum++;
             }
         }
+        else{
+            noGndCloud->push_back((*inCloud)[pid]);
+            noGndNum++;
+        }
     }
     // 释放内存
     free(imgMinZ);
@@ -155,7 +161,7 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     fSearchRadius：搜索半径
     thrHeight：
 */
-SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX::Ptr cloud, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtree, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtreelast, float fSearchRadius, float thrHeight,std_msgs::Header cheader)
+SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX::Ptr cloud, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtree, float fSearchRadius, float thrHeight,std_msgs::Header cheader)
 {
     // 初始化种子
     std::vector<int> seeds;
@@ -302,107 +308,120 @@ float fSearchRadius, float thrHeight,std_msgs::Header cheader)
     pLabel，kdtree，fSearchRadius可以在函数体里初始化
     cloud：前景点云？
 */
-// int SegObjects(PointCloudEX::Ptr cloud, std_msgs::Header cheader)
-// {
-//     int pnum = cloud->points.size();
-//     int labelId = 10; // object编号从10开始
-//     int *pLabel=(int*)calloc(pnum, sizeof(int));
-//     for(int i = 0; i < pnum; i++){
-//         pLabel[i] = 0;
-//     }
-//     //调用pcl的kdtree生成方法
-//     pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtree;
-//     kdtree.setInputCloud (cloud);
-//     float fSearchRadius = 1.2;
+int SegObjects(PointCloudEX::Ptr cloud, std_msgs::Header cheader)
+{
+    int pnum = cloud->points.size();
+    int labelId = 10; // object编号从10开始
+    int *pLabel=(int*)calloc(pnum, sizeof(int));
+    for(int i = 0; i < pnum; i++){
+        pLabel[i] = 0;
+    }
+    //调用pcl的kdtree生成方法
+    pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtree;
+    kdtree.setInputCloud (cloud);
+    float fSearchRadius = 1.2;
 
-//     // 动态点云和静态点云
-//     PointCloudEX::Ptr dynCloud(new PointCloudEX);
-//     PointCloudEX::Ptr staCloud(new PointCloudEX);
+    // 动态点云和静态点云
+    PointCloudEX::Ptr dynCloud(new PointCloudEX);
+    PointCloudEX::Ptr staCloud(new PointCloudEX);
 
-//     //遍历每个非背景点，若高度大于0.4则寻找一个簇，并给一个编号(>10)
-//     for(int pid = 0; pid < pnum; pid++)
-//     {
-//         if(pLabel[pid] == 0)
-//         {
-//             if(cloud->points[pid].z > 0.4)//高度阈值
-//             {
-//                 SClusterFeature cf = FindACluster(pLabel,pid,labelId,cloud,kdtree,fSearchRadius,0.2,cheader);
-//                 int isBg=0;
+    //遍历每个非背景点，若高度大于0.4则寻找一个簇，并给一个编号(>10)
+    for(int pid = 0; pid < pnum; pid++)
+    {
+        if(pLabel[pid] == 0)
+        {
+            if(cloud->points[pid].z > 0)//高度阈值
+            {
+                SClusterFeature cf = FindACluster(pLabel,pid,labelId,cloud,kdtree,fSearchRadius,0,cheader);
+                int isCar=0;
 
-//                 // cluster 分类
-//                 float dx=cf.xmax-cf.xmin;
-//                 float dy=cf.ymax-cf.ymin;
-//                 float dz=cf.zmax-cf.zmin;
-//                 float cx=10000;
-//                 for(int ii=0;ii<pnum;ii++)
-//                 {
-//                     if (cx>cloud->points[pid].x)
-//                     {
-//                         cx=cloud->points[pid].x; // cx是点云x坐标的最小值
-//                     }
-//                 }
+                // cluster 分类
+                float dx=cf.xmax-cf.xmin;
+                float dy=cf.ymax-cf.ymin;
+                float dz=cf.zmax-cf.zmin;
+                // float cx=10000;
+                
+                // if (cx>cloud->points[pid].x)
+                // {
+                //     cx=cloud->points[pid].x; // cx是点云x坐标的最小值
+                // }
 
-//                 if((dx>10)||(dy>10)||((dx>6)&&(dy>6)))// 太大
-//                 {
-//                     isBg=2;
-//                 }
-//                 else if(((dx>6)||(dy>6))&&(cf.zmean < 2))//长而过低
-//                 {
-//                     isBg = 3;//1;//2;
-//                 }
-//                 else if(((dx<1.5)&&(dy<1.5)))//小而过高
-//                 {
-//                     isBg = 4;
-//                 }
-//                 else if(cf.pnum<5 || (cf.pnum<10 && cx<50)) //点太少
-//                 {
-//                     isBg=5;
-//                 }
-//                 else if((cf.zmean>3)||(cf.zmean<0.3))//太高或太低
-//                 {
-//                     isBg = 6;//1;
-//                 }
+                // if((dx> 10)||(dy>10)||((dx>6)&&(dy>6)))// 太大
+                // {
+                //     isBg=2;
+                // }
+                // else if(((dx>6)||(dy>6))&&(cf.zmean < 2))//长而过低
+                // {
+                //     isBg = 3;//1;//2;
+                // }
+                // else if(((dx<1.5)&&(dy<1.5)))//小而过高
+                // {
+                //     isBg = 4;
+                // }
+                // else if(cf.pnum<5 || (cf.pnum<10 && cx<50)) //点太少
+                // {
+                //     isBg=5;
+                // }
+                // else if((cf.zmean>3)||(cf.zmean<0.3))//太高或太低
+                // {
+                //     isBg = 6;//1;
+                // }
+                // if((dx < 2) && (dy > 1) && (dy < 2) && (dz > 1) && (dz < 2)){ // 小车平行方向直行
+                //     isCar = 1;
+                // }
+                // else if((dx < 2) && (dy > 1.5) && (dy < 2.5) && (dz > 1.5) && (dz < 3)){ // 大车平行方向直行
+                //     isCar = 1;
+                // }
+                // else if((dx < 2) && (dy > 3) && (dy < 5) && (dz > 1) && (dz < 2)){ // 小车垂直方向直行
+                //     isCar = 1;
+                // }
+                // else if((dx < 2) && (dy > 4) && (dy < 10) && (dz > 1.5) && (dz < 3)){ // 大车垂直方向直行
+                //     isCar = 1;
+                // }
+                //  std::cout << "动态点数：" << cf.pnum << std::endl;
 
-//                 if(isBg>0) // 归入背景
-//                 {
-//                     for(int ii=0;ii<pnum;ii++)
-//                     {
-//                         if(pLabel[ii]==labelId)
-//                         {
-//                             pLabel[ii]=isBg;
-//                         }
-//                     }
-//                 }
-//                 else // 前景
-// 		        {
-//                     labelId++;
-//                 }
-//             }
-//         }
-//     }
-//     for(int pid = 0; pid < pnum; pid++){
-//         if(pLabel[pid] > 0){
-//             staCloud->push_back((*cloud)[pid]);
-//         }
-//         else if(pLabel[pid] == 0){
-//             dynCloud->push_back((*cloud)[pid]);
-//         }
-//     }
-//     // 发布点云
-//     std::cout << dynCloud->size() << std::endl;
-//     std::cout << staCloud->size() << std::endl;
+                if(cf.pnum < 100){
+                    isCar = 1;
+                    // std::cout << "Y" << std::endl;
+                }
+
+                if(isCar>0) // 归入动态点
+                {
+                    for(int ii=0;ii<pnum;ii++){
+                        if(pLabel[ii]==labelId){
+                            pLabel[ii]=isCar;
+                        }
+                    }
+                }
+                else{
+                    labelId++;
+                }
+            }
+        }
+    }
+    for(int pid = 0; pid < pnum; pid++){
+        if(pLabel[pid] == 1){
+            dynCloud->push_back((*cloud)[pid]);
+        }
+        else{
+            staCloud->push_back((*cloud)[pid]);
+        }
+    }
+    // 发布点云
+    std::cout << dynCloud->size() << std::endl;
+    std::cout << staCloud->size() << std::endl;
     
-//     sensor_msgs::PointCloud2 msg_dyn;
-//     pcl::toROSMsg(*dynCloud, msg_dyn);
-//     msg_dyn.header = cheader; //header怎么传？
-//     pub_dyn.publish(msg_dyn);
+    sensor_msgs::PointCloud2 msg_dyn;
+    pcl::toROSMsg(*dynCloud, msg_dyn);
+    msg_dyn.header = cheader; //header怎么传？
+    pub_dyn.publish(msg_dyn);
 
-//     sensor_msgs::PointCloud2 msg_sta;
-//     pcl::toROSMsg(*staCloud, msg_sta);
-//     msg_sta.header = cheader;
-//     pub_sta.publish(msg_sta);
-//     return labelId-10;//返回前景类个数
-// }
+    sensor_msgs::PointCloud2 msg_sta;
+    pcl::toROSMsg(*staCloud, msg_sta);
+    msg_sta.header = cheader;
+    pub_sta.publish(msg_sta);
+    return labelId-10;//返回前景类个数
+}
 
 /*
     方案二：通过前后帧对比来判断
@@ -562,18 +581,18 @@ void SegBG(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     pub_fg.publish(msg_fg);
 
     // 方案一
-    // int fgNum = SegObjects(fgCloud, Cloud->header);
-    // std::cout << "动态点数：" << fgNum << std::endl;
+    int fgNum = SegObjects(fgCloud, Cloud->header);
+   
 
     // 方案二
-    if(lastFlag == 0){
-        lastFlag = 1;
-    }
-    else{
-        SegDynamic(lastCloud, fgCloud, Cloud->header);
-    }
-    lastCloud->clear();
-    lastCloud = inCloud;
+    // if(lastFlag == 0){
+    //     lastFlag = 1;
+    // }
+    // else{
+    //     SegDynamic(lastCloud, fgCloud, Cloud->header);
+    // }
+    // lastCloud->clear();
+    // lastCloud = inCloud;
 }
 
 
