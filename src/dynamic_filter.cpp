@@ -146,7 +146,7 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
 }
 
 /*
-    对非背景点进行聚类
+    对非背景点进行聚类，两种方案都要用到这个函数
     pLabel：前背景标签，前景=0，背景=1
     seedId：点在点云中的索引
     labelId：簇的编号 maybe
@@ -212,7 +212,7 @@ SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX:
             if(pLabel[k_inds[ind]]==0)
             {
                 pLabel[k_inds[ind]]=labelId;
-                cloud->points[k_inds[ind]].intensity=labelId;
+                // cloud->points[k_inds[ind]].intensity=labelId;
                 // cnum++;
                 cf.pnum++;
                 if(cloud->points[k_inds[ind]].z>thrHeight)//地面60cm以下不参与分割
@@ -223,21 +223,18 @@ SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX:
         }
     }
     cf.zmean/=(cf.pnum+0.000001);
-    sensor_msgs::PointCloud2 msg_sta;
-    pcl::toROSMsg(*cloud, msg_sta);
-    msg_sta.header = cheader;
-    pub_sta.publish(msg_sta);
     return cf;
 }
 
 /*
-pLabel，kdtree，fSearchRadius可以在函数体里初始化
-cloud：前景点云？
+    方案一：通过聚类大小来判断动态点
+    pLabel，kdtree，fSearchRadius可以在函数体里初始化
+    cloud：前景点云？
 */
 int SegObjects(PointCloudEX::Ptr cloud, std_msgs::Header cheader)
 {
     int pnum = cloud->points.size();
-    int labelId = 10; // object编号从10开始 ?
+    int labelId = 10; // object编号从10开始
     int *pLabel=(int*)calloc(pnum, sizeof(int));
     for(int i = 0; i < pnum; i++){
         pLabel[i] = 0;
@@ -336,6 +333,9 @@ int SegObjects(PointCloudEX::Ptr cloud, std_msgs::Header cheader)
     return labelId-10;//返回前景类个数
 }
 
+/*
+    方案二：通过前后帧对比来判断
+*/
 void SegDynamic(PointCloudEX::Ptr lastCloud, PointCloudEX::Ptr fgCloud, std_msgs::Header cheader){
     int fgNum = fgCloud->points.size(); // 当前前景点云的点数
     // std::cout << fgNum << std::endl;
@@ -343,15 +343,28 @@ void SegDynamic(PointCloudEX::Ptr lastCloud, PointCloudEX::Ptr fgCloud, std_msgs
     PointCloudEX::Ptr dynCloud(new PointCloudEX);
     PointCloudEX::Ptr staCloud(new PointCloudEX);
 
+    // object编号从10开始
+    int labelId = 10; 
+    int *pLabel=(int*)calloc(fgNum, sizeof(int));
+    for(int i = 0; i < fgNum; i++){
+        pLabel[i] = 0;
+    }
+
     //调用pcl的kdtree生成方法
     pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtree;
     kdtree.setInputCloud(lastCloud);
     int searchNum = 1;
-    float fSearchRadius = 0.2; // 调整
+    float fSearchRadius = 1.2; // 调整
+    float thrHeight = 0.2;
     TanwayPCLEXPoint searchPoint;
     
 
     for (int pid = 0; pid < fgNum; pid++){
+        if(fgCloud->points[pid].z > 0.4)//高度阈值
+        {
+            SClusterFeature cf = FindACluster(pLabel,pid,labelId,fgCloud,kdtree,fSearchRadius,thrHeight,cheader);
+        
+        }
         searchPoint = fgCloud->points[pid];
         // searchPoint.x = fgCloud->points[pid].x;
         // searchPoint.y = fgCloud->points[pid].y;
@@ -476,18 +489,18 @@ void SegBG(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     pub_fg.publish(msg_fg);
 
     // 方案一
-    int fgNum = SegObjects(fgCloud, Cloud->header);
-    std::cout << "动态点数：" << fgNum << std::endl;
+    // int fgNum = SegObjects(fgCloud, Cloud->header);
+    // std::cout << "动态点数：" << fgNum << std::endl;
 
     // 方案二
-    // if(lastFlag == 0){
-    //     lastFlag = 1;
-    // }
-    // else{
-    //     SegDynamic(lastCloud, fgCloud, Cloud->header);
-    // }
-    // lastCloud->clear();
-    // lastCloud = inCloud;
+    if(lastFlag == 0){
+        lastFlag = 1;
+    }
+    else{
+        // SegDynamic(lastCloud, fgCloud, Cloud->header);
+    }
+    lastCloud->clear();
+    lastCloud = inCloud;
 }
 
 
@@ -497,7 +510,8 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "tanway_dynamic_filter");
     ros::NodeHandle nh;
 
-    ros::Subscriber sub = nh.subscribe(topic_pcl, 10, SegBG);
+    ros::Subscriber sub = nh.subscribe(topic_pcl, 10, FilterGnd);
+    ros::Subscriber sub_ng = nh.subscribe("/nogndcloud", 10, SegBG);
     pub_g = nh.advertise<sensor_msgs::PointCloud2>("gndcloud", 10);
     pub_ng = nh.advertise<sensor_msgs::PointCloud2>("nogndcloud", 10);
     pub_bg = nh.advertise<sensor_msgs::PointCloud2>("bgcloud", 1000);
