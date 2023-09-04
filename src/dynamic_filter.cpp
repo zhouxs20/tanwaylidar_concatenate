@@ -155,7 +155,7 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     fSearchRadius：搜索半径
     thrHeight：
 */
-SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX::Ptr cloud, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtree, float fSearchRadius, float thrHeight,std_msgs::Header cheader)
+SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX::Ptr cloud, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtree, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtreelast, float fSearchRadius, float thrHeight,std_msgs::Header cheader)
 {
     // 初始化种子
     std::vector<int> seeds;
@@ -181,9 +181,6 @@ SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX:
 
         TanwayPCLEXPoint searchPoint;
         searchPoint = cloud->points[sid];
-        // searchPoint.x=cloud->points[sid].x;
-        // searchPoint.y=cloud->points[sid].y;
-        // searchPoint.z=cloud->points[sid].z;
 
         // 特征统计
         {
@@ -202,11 +199,11 @@ SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX:
         std::vector<float> k_dis;
         std::vector<int> k_inds;
 
-        if(searchPoint.x<44.8)
-            kdtree.radiusSearch(searchPoint,fSearchRadius,k_inds,k_dis);
-        else
-            kdtree.radiusSearch(searchPoint,2*fSearchRadius,k_inds,k_dis);
-
+        // if(searchPoint.x<44.8)
+        //     kdtree.radiusSearch(searchPoint,fSearchRadius,k_inds,k_dis);
+        // else
+        //     kdtree.radiusSearch(searchPoint,2*fSearchRadius,k_inds,k_dis);
+        kdtree.radiusSearch(searchPoint,fSearchRadius,k_inds,k_dis);
         for(int ind=0;ind<k_inds.size();ind++)
         {
             if(pLabel[k_inds[ind]]==0)
@@ -215,7 +212,7 @@ SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX:
                 // cloud->points[k_inds[ind]].intensity=labelId;
                 // cnum++;
                 cf.pnum++;
-                if(cloud->points[k_inds[ind]].z>thrHeight)//地面60cm以下不参与分割
+                if(cloud->points[k_inds[ind]].z>thrHeight)//地面20cm以下不参与分割
                 {
                     seeds.push_back(k_inds[ind]);
                 }
@@ -223,7 +220,81 @@ SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX:
         }
     }
     cf.zmean/=(cf.pnum+0.000001);
+
+    // TanwayPCLEXPoint searchPoint;
+    // // 动态点云和静态点云
+    // PointCloudEX::Ptr dynCloud(new PointCloudEX);
+    // if(cf.pnum > 10){
+    //     for(int ind=0;ind<k_inds.size();ind++)
+    //     searchPoint = cloud->points[seedId];
+    //     std::vector<float> k_dis; // 存储近邻点对应距离的平方
+    //     std::vector<int> k_inds; // 存储查询近邻点索引
+    //     kdtreelast.nearestKSearch(searchPoint, 1, k_inds, k_dis);
+    //     if(k_dis[0] > fSearchRadius){
+    //         dynCloud->push_back(cloud->points[pid]);
+    //     }
+    // }
     return cf;
+}
+
+void FindCluster(int *pLabel, int seedId, int labelId, PointCloudEX::Ptr cloud, 
+pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtree, pcl::KdTreeFLANN<TanwayPCLEXPoint> &kdtreelast,
+float fSearchRadius, float thrHeight,std_msgs::Header cheader)
+{
+    // 初始化种子
+    std::vector<int> seeds;
+    seeds.push_back(seedId);
+    pLabel[seedId]=labelId;
+    int pnum = 1;
+    // 聚类点云
+    PointCloudEX::Ptr clusterCloud(new PointCloudEX);
+    clusterCloud->push_back(cloud->points[seedId]);
+    // 区域增长
+    while(seeds.size()>0) //实际上是种子点找了下k近邻，然后k近邻再纳入种子点 sy
+    {
+        int sid=seeds[seeds.size()-1];
+        seeds.pop_back();
+        
+        TanwayPCLEXPoint seedPoint;
+        seedPoint = cloud->points[sid];
+        std::vector<float> k_dis;
+        std::vector<int> k_inds;
+
+        kdtree.radiusSearch(seedPoint,fSearchRadius,k_inds,k_dis);
+        for(int ind=0;ind<k_inds.size();ind++)
+        {
+            if(pLabel[k_inds[ind]]==0)
+            {
+                clusterCloud->push_back(cloud->points[k_inds[ind]]);
+                pLabel[k_inds[ind]]=labelId;
+                // cloud->points[k_inds[ind]].intensity=labelId;
+                // cnum++;
+                pnum++;
+                if(cloud->points[k_inds[ind]].z>thrHeight)//地面20cm以下不参与分割
+                {
+                    seeds.push_back(k_inds[ind]);
+                }
+            }
+        }
+    }
+    TanwayPCLEXPoint searchPoint;
+    int cnum = 0;
+    for (int pid = 0; pid < pnum; pid++){
+        searchPoint = clusterCloud->points[pid];
+        std::vector<float> k_dis; // 存储近邻点对应距离的平方
+        std::vector<int> k_inds; // 存储查询近邻点索引
+        kdtreelast.nearestKSearch(searchPoint, 1, k_inds, k_dis);
+        if(k_dis[0] > fSearchRadius){
+            cnum++;
+        }
+    }
+    if(3 * cnum > pnum){
+        for (int pid = 0; pid < cloud->points.size(); pid++){
+            if(pLabel[pid] == labelId){
+                pLabel[pid] = 1;
+            }
+        }
+    }
 }
 
 /*
@@ -231,107 +302,107 @@ SClusterFeature FindACluster(int *pLabel, int seedId, int labelId, PointCloudEX:
     pLabel，kdtree，fSearchRadius可以在函数体里初始化
     cloud：前景点云？
 */
-int SegObjects(PointCloudEX::Ptr cloud, std_msgs::Header cheader)
-{
-    int pnum = cloud->points.size();
-    int labelId = 10; // object编号从10开始
-    int *pLabel=(int*)calloc(pnum, sizeof(int));
-    for(int i = 0; i < pnum; i++){
-        pLabel[i] = 0;
-    }
-    //调用pcl的kdtree生成方法
-    pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtree;
-    kdtree.setInputCloud (cloud);
-    float fSearchRadius = 1.2;
+// int SegObjects(PointCloudEX::Ptr cloud, std_msgs::Header cheader)
+// {
+//     int pnum = cloud->points.size();
+//     int labelId = 10; // object编号从10开始
+//     int *pLabel=(int*)calloc(pnum, sizeof(int));
+//     for(int i = 0; i < pnum; i++){
+//         pLabel[i] = 0;
+//     }
+//     //调用pcl的kdtree生成方法
+//     pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtree;
+//     kdtree.setInputCloud (cloud);
+//     float fSearchRadius = 1.2;
 
-    // 动态点云和静态点云
-    PointCloudEX::Ptr dynCloud(new PointCloudEX);
-    PointCloudEX::Ptr staCloud(new PointCloudEX);
+//     // 动态点云和静态点云
+//     PointCloudEX::Ptr dynCloud(new PointCloudEX);
+//     PointCloudEX::Ptr staCloud(new PointCloudEX);
 
-    //遍历每个非背景点，若高度大于0.4则寻找一个簇，并给一个编号(>10)
-    for(int pid = 0; pid < pnum; pid++)
-    {
-        if(pLabel[pid] == 0)
-        {
-            if(cloud->points[pid].z > 0.4)//高度阈值
-            {
-                SClusterFeature cf = FindACluster(pLabel,pid,labelId,cloud,kdtree,fSearchRadius,0.2,cheader);
-                int isBg=0;
+//     //遍历每个非背景点，若高度大于0.4则寻找一个簇，并给一个编号(>10)
+//     for(int pid = 0; pid < pnum; pid++)
+//     {
+//         if(pLabel[pid] == 0)
+//         {
+//             if(cloud->points[pid].z > 0.4)//高度阈值
+//             {
+//                 SClusterFeature cf = FindACluster(pLabel,pid,labelId,cloud,kdtree,fSearchRadius,0.2,cheader);
+//                 int isBg=0;
 
-                // cluster 分类
-                float dx=cf.xmax-cf.xmin;
-                float dy=cf.ymax-cf.ymin;
-                float dz=cf.zmax-cf.zmin;
-                float cx=10000;
-                for(int ii=0;ii<pnum;ii++)
-                {
-                    if (cx>cloud->points[pid].x)
-                    {
-                        cx=cloud->points[pid].x; // cx是点云x坐标的最小值
-                    }
-                }
+//                 // cluster 分类
+//                 float dx=cf.xmax-cf.xmin;
+//                 float dy=cf.ymax-cf.ymin;
+//                 float dz=cf.zmax-cf.zmin;
+//                 float cx=10000;
+//                 for(int ii=0;ii<pnum;ii++)
+//                 {
+//                     if (cx>cloud->points[pid].x)
+//                     {
+//                         cx=cloud->points[pid].x; // cx是点云x坐标的最小值
+//                     }
+//                 }
 
-                if((dx>10)||(dy>10)||((dx>6)&&(dy>6)))// 太大
-                {
-                    isBg=2;
-                }
-                else if(((dx>6)||(dy>6))&&(cf.zmean < 2))//长而过低
-                {
-                    isBg = 3;//1;//2;
-                }
-                else if(((dx<1.5)&&(dy<1.5)))//小而过高
-                {
-                    isBg = 4;
-                }
-                else if(cf.pnum<5 || (cf.pnum<10 && cx<50)) //点太少
-                {
-                    isBg=5;
-                }
-                else if((cf.zmean>3)||(cf.zmean<0.3))//太高或太低
-                {
-                    isBg = 6;//1;
-                }
+//                 if((dx>10)||(dy>10)||((dx>6)&&(dy>6)))// 太大
+//                 {
+//                     isBg=2;
+//                 }
+//                 else if(((dx>6)||(dy>6))&&(cf.zmean < 2))//长而过低
+//                 {
+//                     isBg = 3;//1;//2;
+//                 }
+//                 else if(((dx<1.5)&&(dy<1.5)))//小而过高
+//                 {
+//                     isBg = 4;
+//                 }
+//                 else if(cf.pnum<5 || (cf.pnum<10 && cx<50)) //点太少
+//                 {
+//                     isBg=5;
+//                 }
+//                 else if((cf.zmean>3)||(cf.zmean<0.3))//太高或太低
+//                 {
+//                     isBg = 6;//1;
+//                 }
 
-                if(isBg>0) // 归入背景
-                {
-                    for(int ii=0;ii<pnum;ii++)
-                    {
-                        if(pLabel[ii]==labelId)
-                        {
-                            pLabel[ii]=isBg;
-                        }
-                    }
-                }
-                else // 前景
-		        {
-                    labelId++;
-                }
-            }
-        }
-    }
-    for(int pid = 0; pid < pnum; pid++){
-        if(pLabel[pid] > 0){
-            staCloud->push_back((*cloud)[pid]);
-        }
-        else if(pLabel[pid] == 0){
-            dynCloud->push_back((*cloud)[pid]);
-        }
-    }
-    // 发布点云
-    std::cout << dynCloud->size() << std::endl;
-    std::cout << staCloud->size() << std::endl;
+//                 if(isBg>0) // 归入背景
+//                 {
+//                     for(int ii=0;ii<pnum;ii++)
+//                     {
+//                         if(pLabel[ii]==labelId)
+//                         {
+//                             pLabel[ii]=isBg;
+//                         }
+//                     }
+//                 }
+//                 else // 前景
+// 		        {
+//                     labelId++;
+//                 }
+//             }
+//         }
+//     }
+//     for(int pid = 0; pid < pnum; pid++){
+//         if(pLabel[pid] > 0){
+//             staCloud->push_back((*cloud)[pid]);
+//         }
+//         else if(pLabel[pid] == 0){
+//             dynCloud->push_back((*cloud)[pid]);
+//         }
+//     }
+//     // 发布点云
+//     std::cout << dynCloud->size() << std::endl;
+//     std::cout << staCloud->size() << std::endl;
     
-    sensor_msgs::PointCloud2 msg_dyn;
-    pcl::toROSMsg(*dynCloud, msg_dyn);
-    msg_dyn.header = cheader; //header怎么传？
-    pub_dyn.publish(msg_dyn);
+//     sensor_msgs::PointCloud2 msg_dyn;
+//     pcl::toROSMsg(*dynCloud, msg_dyn);
+//     msg_dyn.header = cheader; //header怎么传？
+//     pub_dyn.publish(msg_dyn);
 
-    sensor_msgs::PointCloud2 msg_sta;
-    pcl::toROSMsg(*staCloud, msg_sta);
-    msg_sta.header = cheader;
-    pub_sta.publish(msg_sta);
-    return labelId-10;//返回前景类个数
-}
+//     sensor_msgs::PointCloud2 msg_sta;
+//     pcl::toROSMsg(*staCloud, msg_sta);
+//     msg_sta.header = cheader;
+//     pub_sta.publish(msg_sta);
+//     return labelId-10;//返回前景类个数
+// }
 
 /*
     方案二：通过前后帧对比来判断
@@ -352,29 +423,31 @@ void SegDynamic(PointCloudEX::Ptr lastCloud, PointCloudEX::Ptr fgCloud, std_msgs
 
     //调用pcl的kdtree生成方法
     pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtree;
-    kdtree.setInputCloud(lastCloud);
+    kdtree.setInputCloud(fgCloud);
+    pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtreelast;
+    kdtreelast.setInputCloud(lastCloud);
     int searchNum = 1;
-    float fSearchRadius = 1.2; // 调整
-    float thrHeight = 0.2;
+    float fSearchRadius = 1; // 调整
+    float thrHeight = 0;
     TanwayPCLEXPoint searchPoint;
     
 
     for (int pid = 0; pid < fgNum; pid++){
-        if(fgCloud->points[pid].z > 0.4)//高度阈值
-        {
-            SClusterFeature cf = FindACluster(pLabel,pid,labelId,fgCloud,kdtree,fSearchRadius,thrHeight,cheader);
-        
+        if(pLabel[pid] == 0){
+            if(fgCloud->points[pid].z > 0)//高度阈值
+            {
+                FindCluster(pLabel,pid,labelId,fgCloud,kdtree,kdtreelast,fSearchRadius,thrHeight,cheader);
+                // SClusterFeature cf = FindACluster(pLabel,pid,labelId,fgCloud,kdtree,kdtreelast,fSearchRadius,thrHeight,cheader);
+                // int cnum = cf.pnum;
+                // if(cnum>1){
+                //     std::cout << "该聚类的点数为" << cnum << std::endl;
+                // }
+            }
         }
-        searchPoint = fgCloud->points[pid];
-        // searchPoint.x = fgCloud->points[pid].x;
-        // searchPoint.y = fgCloud->points[pid].y;
-        // searchPoint.z = fgCloud->points[pid].z;
-        std::vector<float> k_dis; // 存储近邻点对应距离的平方
-        std::vector<int> k_inds; // 存储查询近邻点索引
-        // std::cout << "kdtree" << std::endl;
-        kdtree.nearestKSearch(searchPoint, searchNum, k_inds, k_dis); // pid位置放什么参数？
-        // std::cout << k_dis[0] << std::endl;
-        if(k_dis[0] > fSearchRadius){
+        
+    }
+    for (int pid = 0; pid < fgNum; pid++){
+        if(pLabel[pid] == 1){
             dynCloud->push_back(fgCloud->points[pid]);
         }
         else{
@@ -425,7 +498,7 @@ void SegBG(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     std::vector<int> seeds;
     for (int pid = 0; pid < inNum; pid++)
     {
-        if(inCloud->points[pid].z > 4)
+        if(inCloud->points[pid].z > 3)
         {
             pLabel[pid] = 1; // 背景
             if (inCloud->points[pid].z < 6)
@@ -497,7 +570,7 @@ void SegBG(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
         lastFlag = 1;
     }
     else{
-        // SegDynamic(lastCloud, fgCloud, Cloud->header);
+        SegDynamic(lastCloud, fgCloud, Cloud->header);
     }
     lastCloud->clear();
     lastCloud = inCloud;
