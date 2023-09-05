@@ -52,8 +52,8 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     // 数值待修改 
     int GndNum = 0;
     int noGndNum = 0;
-    float dx = 1;
-    float dy = 1;
+    float dx = 0.5;
+    float dy = 0.5;
     // int x_len = 300;
     // int y_len = 245;
     int x_len = 30;
@@ -115,8 +115,8 @@ void FilterGnd(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
         if(idtemp[pid] > 0 && idtemp[pid] < nx*ny)
         {
             imgMeanZ[idtemp[pid]] = float(imgSumZ[idtemp[pid]] / (imgNumZ[idtemp[pid]] + 0.0001));
-            //地面点条件：最高点与均值高度差小于阈值；点数大于3；均值高度小于1 
-            if((imgMaxZ[idtemp[pid]] - imgMeanZ[idtemp[pid]]) < THR && imgNumZ[idtemp[pid]] > 3 && imgMeanZ[idtemp[pid]] < 1)
+            //地面点条件：最高点与均值高度差小于阈值；点数大于0；均值高度小于1 
+            if((imgMaxZ[idtemp[pid]] - imgMeanZ[idtemp[pid]]) < THR && imgNumZ[idtemp[pid]] > 0 && imgMeanZ[idtemp[pid]] < 1)
             {
                 GndCloud->push_back((*inCloud)[pid]);
                 GndNum++;
@@ -330,7 +330,7 @@ int SegObjects(PointCloudEX::Ptr cloud, std_msgs::Header cheader)
     {
         if(pLabel[pid] == 0)
         {
-            if(cloud->points[pid].z > 0)//高度阈值
+            if(1)//高度阈值:cloud->points[pid].z > 0
             {
                 SClusterFeature cf = FindACluster(pLabel,pid,labelId,cloud,kdtree,fSearchRadius,0,cheader);
                 int isCar=0;
@@ -380,9 +380,12 @@ int SegObjects(PointCloudEX::Ptr cloud, std_msgs::Header cheader)
                 // }
                 //  std::cout << "动态点数：" << cf.pnum << std::endl;
 
-                if(cf.pnum < 100){
+                // 筛选动态点条件：cf.pnum >= 60 && (dy >=1 && dx >= 1) && cf.zmax < 1.5
+                if(cf.pnum > 5 && cf.pnum <= 200 && (dx < 2) && (dy > 1) && (dy < 2.5)){
                     isCar = 1;
-                    // std::cout << "Y" << std::endl;
+                }
+                if(cf.pnum > 5 && cf.pnum <= 200 && (dy < 3) && (dx > 1) && (dx < 4)){
+                    isCar = 1;
                 }
 
                 if(isCar>0) // 归入动态点
@@ -520,7 +523,7 @@ void SegBG(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
         if(inCloud->points[pid].z > 3)
         {
             pLabel[pid] = 1; // 背景
-            if (inCloud->points[pid].z < 6)
+            if (inCloud->points[pid].z < 5)
             {
                 seeds.push_back(pid);
             }
@@ -541,20 +544,22 @@ void SegBG(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
         std::vector<int> k_inds; // 存储查询近邻点索引
 
         // 查询point半径为radius邻域球内的点，搜索结果默认是按照距离point点的距离从近到远排序
-        if (inCloud->points[sid].x < 44.8) // 限制了x的范围，对于近点和远点采用不同的半径
-            kdtree.radiusSearch(sid, fSearchRadius, k_inds, k_dis);
-        else
-            kdtree.radiusSearch(sid, 1.5*fSearchRadius, k_inds, k_dis);
+        kdtree.radiusSearch(sid, fSearchRadius, k_inds, k_dis);
+        // if (inCloud->points[sid].x < 44.8) // 限制了x的范围，对于近点和远点采用不同的半径
+        //     kdtree.radiusSearch(sid, fSearchRadius, k_inds, k_dis);
+        // else
+        //     kdtree.radiusSearch(sid, 1.5*fSearchRadius, k_inds, k_dis);
 
         for(int ind=0;ind<k_inds.size();ind++)
         {
             if(pLabel[k_inds[ind]]==0) // 前景=0
             {
                 pLabel[k_inds[ind]]=1; // 归到背景=1
-                if(inCloud->points[k_inds[ind]].z>0.2)//（防止增长到了近地面）地面20cm以下不参与背景分割，以防止错误的地面点导致过度分割
-                {
-                    seeds.push_back(k_inds[ind]);
-                }
+                seeds.push_back(k_inds[ind]);
+                // if(inCloud->points[k_inds[ind]].z>0)//（防止增长到了近地面）地面20cm以下不参与背景分割，以防止错误的地面点导致过度分割
+                // {
+                //     seeds.push_back(k_inds[ind]);
+                // }
             }
         }
     }
@@ -581,7 +586,7 @@ void SegBG(const sensor_msgs::PointCloud2::ConstPtr& Cloud)
     pub_fg.publish(msg_fg);
 
     // 方案一
-    int fgNum = SegObjects(fgCloud, Cloud->header);
+    // int fgNum = SegObjects(fgCloud, Cloud->header);
    
 
     // 方案二
