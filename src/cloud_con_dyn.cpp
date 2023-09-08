@@ -234,6 +234,9 @@ void SegDynamic(PointCloudEX::Ptr lastCloud, PointCloudEX::Ptr curCloud, std_msg
     pcl::toROSMsg(*staCloud, msg_sta);
     msg_sta.header = cheader;
     pub_sta.publish(msg_sta);
+    // sensor_msgs::PointCloud2::Ptr Msg_sta(new sensor_msgs::PointCloud2);
+    // *Msg_sta = msg_sta;
+    // lidar_buffer[frame_num - 1] = Msg_sta;
 }
 
 void create_pcd(){
@@ -248,6 +251,10 @@ void create_pcd(){
     PointCloudEX::Ptr lastcloud(new PointCloudEX);
     PointCloudEX::Ptr currentcloud(new PointCloudEX);
     PointCloudEX::Ptr bgcloud(new PointCloudEX);
+
+    sensor_msgs::PointCloud2::ConstPtr pscan(new sensor_msgs::PointCloud2);
+    PointCloudEX::Ptr scanback(new PointCloudEX);
+
 
     for(int i = 0; i < frame_num; i++){
         float **pose;
@@ -276,7 +283,6 @@ void create_pcd(){
         double x,y;
         if(num == 0){
             pcloud = lidar_buffer[num];
-            
             pcl::fromROSMsg(*pcloud, *cloudadd);
             pc_row = cloudadd->points.size();
             // std::cout<<"原始点云"<<cloudadd->points.size()<<std::endl;
@@ -297,6 +303,27 @@ void create_pcd(){
                 cloudadd->points[r].y = -x * sin(yaw) + y * cos(yaw);
             }
             *lastcloud = *cloudadd;
+            // 原始帧
+            pscan = lastScan;
+            pcl::fromROSMsg(*pscan, *scanback);
+            pc_row = scanback->points.size();
+            // std::cout<<"原始点云"<<cloudadd->points.size()<<std::endl;
+            // float pc_array[4];
+            for(int r = 0; r < pc_row; r++){
+                pc_array[0] = scanback->points[r].x;
+                pc_array[1] = scanback->points[r].y;
+                pc_array[2] = scanback->points[r].z;
+                pc_array[3] = 1.0;
+                float pc[4][1] = {0};
+                Multiply1(pose1, pc_array, pc, 4, 4, 1);
+                // cloudadd->points[r].x = pc[0][0];
+                // cloudadd->points[r].y = pc[1][0];
+                x = pc[0][0];
+                y = pc[1][0];
+                scanback->points[r].z = pc[2][0];
+                scanback->points[r].x = x * cos(yaw) + y * sin(yaw);
+                scanback->points[r].y = -x * sin(yaw) + y * cos(yaw);
+            }
         }
         else if(num > 0){
             pcloud = lidar_buffer[num];
@@ -352,6 +379,7 @@ void callback(const sensor_msgs::PointCloud2::ConstPtr& pclMsg, const sensor_msg
         // std::cout<<"点云队列存储已满"<<std::endl;
     }
     lidar_buffer.push_back(pclMsg);
+    lastScan = lidar_buffer[0];
     // gps数据
     sensor_msgs::NavSatFix::Ptr gpsmsg(new sensor_msgs::NavSatFix(*gpsMsg));
     // double lon, lat, alt;

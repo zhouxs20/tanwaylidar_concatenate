@@ -36,6 +36,7 @@ add_executable(hello src/hello.cpp)
 add_executable(pose src/pose.cpp)
 add_executable(remove_foreground src/remove_foreground.cpp)
 add_executable(dynamic_filter src/dynamic_filter.cpp)
+add_executable(cloud_con_dyn src/cloud_con_dyn.cpp)
 # add_executable( lla2enu src/lla2enu.cpp)
 
 #连接库
@@ -45,6 +46,7 @@ target_link_libraries(cloud_concatenate ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 target_link_libraries(cloud_segment ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 target_link_libraries(remove_foreground ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 target_link_libraries(dynamic_filter ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(cloud_con_dyn ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 # target_link_libraries(hello ${catkin_LIBRARIES})
 # target_link_libraries(pose ${catkin_LIBRARIES})
