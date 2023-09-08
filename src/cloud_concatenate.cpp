@@ -28,6 +28,9 @@
 #include <pcl/console/parse.h>
 #include <pcl_conversions/pcl_conversions.h> //use these to convert between PCL and ROS datatypes
 
+#include <pcl/kdtree/kdtree_flann.h>
+#include <pcl/search/impl/flann_search.hpp>
+
 using namespace std;
 using namespace message_filters;
 
@@ -40,6 +43,8 @@ std::string topic_gps = "/gps";
 ros::Publisher pub_pcl;
 ros::Publisher pub;
 ros::Publisher pub_bg;
+ros::Publisher pub_dyn;
+ros::Publisher pub_sta;
 
 struct TanwayPCLEXPoint
 {
@@ -238,7 +243,7 @@ void remove_bg(PointCloudEX::Ptr& cloud_bg, PointCloudEX::Ptr& curcloud){
         }
         else if (diff / dist_bg < min_dist_ratio_){
             // point is too close to background
-            cloud_fg->push_back((*cloud)[i]);
+            // cloud_fg->push_back((*cloud)[i]);
             (*cloud)[i] = invalid;
             invalidNum++;
         }
@@ -253,6 +258,56 @@ void remove_bg(PointCloudEX::Ptr& cloud_bg, PointCloudEX::Ptr& curcloud){
     pcl::toROSMsg(*cloud_fg, msg_bg);
     // msg_bg.header = cloud_bg->header;
     pub_bg.publish(msg_bg);
+}
+
+
+/*
+    方案二：通过前后帧对比来判断
+*/
+void SegDynamic(PointCloudEX::Ptr lastCloud, PointCloudEX::Ptr curCloud, std_msgs::Header cheader){
+    int curNum = curCloud->points.size(); // 当前点云的点数
+    // std::cout << curNum << std::endl;
+    // 动态点云和静态点云
+    PointCloudEX::Ptr dynCloud(new PointCloudEX);
+    PointCloudEX::Ptr staCloud(new PointCloudEX);
+
+    //调用pcl的kdtree生成方法
+    // pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtree;
+    // kdtree.setInputCloud(curCloud);
+    pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtreelast;
+    kdtreelast.setInputCloud(lastCloud);
+    int searchNum = 1;
+    float fSearchNum = 1; // 调整
+    float thrDis = 1;
+    TanwayPCLEXPoint searchPoint;
+    
+
+    for (int pid = 0; pid < curNum; pid++){
+        searchPoint = curCloud->points[pid];
+        std::vector<float> k_dis;
+        std::vector<int> k_inds;
+        kdtreelast.nearestKSearch(searchPoint,fSearchNum,k_inds,k_dis);
+        if(k_dis[0] < thrDis){
+            staCloud->push_back(searchPoint);
+        }
+        else{
+            dynCloud->push_back(searchPoint);
+        }
+    }
+    
+    // 发布点云
+    std::cout << dynCloud->size() << std::endl;
+    std::cout << staCloud->size() << std::endl;
+    
+    sensor_msgs::PointCloud2 msg_dyn;
+    pcl::toROSMsg(*dynCloud, msg_dyn);
+    msg_dyn.header = cheader; //header怎么传？
+    pub_dyn.publish(msg_dyn);
+
+    sensor_msgs::PointCloud2 msg_sta;
+    pcl::toROSMsg(*staCloud, msg_sta);
+    msg_sta.header = cheader;
+    pub_sta.publish(msg_sta);
 }
 
 void create_pcd(){
@@ -314,6 +369,7 @@ void create_pcd(){
                 cloudadd->points[r].x = x * cos(yaw) + y * sin(yaw);
                 cloudadd->points[r].y = -x * sin(yaw) + y * cos(yaw);
             }
+            *lastcloud = *cloudadd;
         }
         else if(num > 0){
             pcloud = lidar_buffer[num];
@@ -338,12 +394,12 @@ void create_pcd(){
                 cloud->points[r].x = x * cos(yaw) + y * sin(yaw);
                 cloud->points[r].y = -x * sin(yaw) + y * cos(yaw);
             }
-            if(num == frame_num - 2){
-                *lastcloud = *cloud;
-            }
-            else if(num == frame_num - 1){
+            // if(num == 0){ // num == frame_num - 2
+            //     *lastcloud = *cloud;
+            // }
+            if(num == frame_num - 1){
                 *currentcloud = * cloud;
-                remove_bg(lastcloud, currentcloud);
+                SegDynamic(lastcloud, currentcloud, pcloud->header);
             }
             *cloudadd = *cloudadd + *cloud;
             cloud->clear();
@@ -420,8 +476,11 @@ int main(int argc, char** argv){
     
     //建立一个发布器，主题是/new_cloud，方便之后发布调整后的点云
     pub_pcl = nh.advertise<sensor_msgs::PointCloud2>("/new_cloud", 1000);  
-    pub = nh.advertise<sensor_msgs::PointCloud2>("foreground", 10);
-    pub_bg = nh.advertise<sensor_msgs::PointCloud2>("background", 10);
+    // pub = nh.advertise<sensor_msgs::PointCloud2>("foreground", 10);
+    // pub_bg = nh.advertise<sensor_msgs::PointCloud2>("background", 10);
+    pub_dyn = nh.advertise<sensor_msgs::PointCloud2>("dyncloud", 1000);
+    pub_sta = nh.advertise<sensor_msgs::PointCloud2>("stacloud", 1000);
+
 
     ros::spin();
 
