@@ -208,6 +208,7 @@ float **poses_from_oxts(Oxts oxts){
     return p;
 }
 
+//方法不适用于动态点去除
 void remove_bg(PointCloudEX::Ptr& cloud_bg, PointCloudEX::Ptr& curcloud){
     PointCloudEX::Ptr cloud(new PointCloudEX);
     PointCloudEX::Ptr cloud_fg(new PointCloudEX);

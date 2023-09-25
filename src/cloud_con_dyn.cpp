@@ -62,7 +62,8 @@ struct Oxts
 
 std::deque<Oxts> oxts_buffer;
 std::deque<sensor_msgs::PointCloud2::ConstPtr> lidar_buffer;
-sensor_msgs::PointCloud2::ConstPtr lastScan;
+// sensor_msgs::PointCloud2::ConstPtr lastScan;
+PointCloudEX::Ptr lastScan;
 double t_0[3] = {0,0,0};
 int cnt = 0;
 const int frame_num = 5;
@@ -71,6 +72,7 @@ double scale = 0;
 double er = 6378137.0000;
 float min_dist_ratio_ = 0.02;
 int gap_num = 4;
+int flag = 0;
 
 // 将imu四元数转换为欧拉角
 void imu_to_rpy(double x, double y, double z, double w, double* roll, double* pitch, double* yaw)
@@ -192,23 +194,19 @@ float **poses_from_oxts(Oxts oxts){
 */
 void SegDynamic(PointCloudEX::Ptr lastCloud, PointCloudEX::Ptr curCloud, std_msgs::Header cheader){
     int curNum = curCloud->points.size(); // 当前点云的点数
-    // std::cout << curNum << std::endl;
     // 动态点云和静态点云
-    PointCloudEX::Ptr dynCloud(new PointCloudEX);
-    PointCloudEX::Ptr staCloud(new PointCloudEX);
+    PointCloudEX::Ptr dynCloud(new PointCloudEX); // 动态去除
+    PointCloudEX::Ptr staCloud(new PointCloudEX); // 静态存入队列
 
     //调用pcl的kdtree生成方法
-    // pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtree;
-    // kdtree.setInputCloud(curCloud);
     pcl::KdTreeFLANN<TanwayPCLEXPoint> kdtreelast;
+    TanwayPCLEXPoint searchPoint;
     kdtreelast.setInputCloud(lastCloud);
     int searchNum = 1;
     float fSearchNum = 1; // 调整
     float thrDis = 1;
-    TanwayPCLEXPoint searchPoint;
     
-
-    for (int pid = 0; pid < curNum; pid++){
+    for (int pid = 0; pid < curNum; pid++){ // 依次对当前帧的每个点查找其近邻
         searchPoint = curCloud->points[pid];
         std::vector<float> k_dis;
         std::vector<int> k_inds;
@@ -222,9 +220,6 @@ void SegDynamic(PointCloudEX::Ptr lastCloud, PointCloudEX::Ptr curCloud, std_msg
     }
     
     // 发布点云
-    std::cout << dynCloud->size() << std::endl;
-    std::cout << staCloud->size() << std::endl;
-    
     sensor_msgs::PointCloud2 msg_dyn;
     pcl::toROSMsg(*dynCloud, msg_dyn);
     msg_dyn.header = cheader; //header怎么传？
@@ -252,8 +247,8 @@ void create_pcd(){
     PointCloudEX::Ptr currentcloud(new PointCloudEX);
     PointCloudEX::Ptr bgcloud(new PointCloudEX);
 
-    sensor_msgs::PointCloud2::ConstPtr pscan(new sensor_msgs::PointCloud2);
-    PointCloudEX::Ptr scanback(new PointCloudEX);
+    // sensor_msgs::PointCloud2::ConstPtr pscan(new sensor_msgs::PointCloud2);
+    // PointCloudEX::Ptr scanback(new PointCloudEX);
 
 
     for(int i = 0; i < frame_num; i++){
@@ -304,26 +299,26 @@ void create_pcd(){
             }
             *lastcloud = *cloudadd;
             // 原始帧
-            pscan = lastScan;
-            pcl::fromROSMsg(*pscan, *scanback);
-            pc_row = scanback->points.size();
-            // std::cout<<"原始点云"<<cloudadd->points.size()<<std::endl;
-            // float pc_array[4];
-            for(int r = 0; r < pc_row; r++){
-                pc_array[0] = scanback->points[r].x;
-                pc_array[1] = scanback->points[r].y;
-                pc_array[2] = scanback->points[r].z;
-                pc_array[3] = 1.0;
-                float pc[4][1] = {0};
-                Multiply1(pose1, pc_array, pc, 4, 4, 1);
-                // cloudadd->points[r].x = pc[0][0];
-                // cloudadd->points[r].y = pc[1][0];
-                x = pc[0][0];
-                y = pc[1][0];
-                scanback->points[r].z = pc[2][0];
-                scanback->points[r].x = x * cos(yaw) + y * sin(yaw);
-                scanback->points[r].y = -x * sin(yaw) + y * cos(yaw);
-            }
+            // pscan = lastScan;
+            // pcl::fromROSMsg(*pscan, *scanback);
+            // pc_row = scanback->points.size();
+            // // std::cout<<"原始点云"<<cloudadd->points.size()<<std::endl;
+            // // float pc_array[4];
+            // for(int r = 0; r < pc_row; r++){
+            //     pc_array[0] = scanback->points[r].x;
+            //     pc_array[1] = scanback->points[r].y;
+            //     pc_array[2] = scanback->points[r].z;
+            //     pc_array[3] = 1.0;
+            //     float pc[4][1] = {0};
+            //     Multiply1(pose1, pc_array, pc, 4, 4, 1);
+            //     // cloudadd->points[r].x = pc[0][0];
+            //     // cloudadd->points[r].y = pc[1][0];
+            //     x = pc[0][0];
+            //     y = pc[1][0];
+            //     scanback->points[r].z = pc[2][0];
+            //     scanback->points[r].x = x * cos(yaw) + y * sin(yaw);
+            //     scanback->points[r].y = -x * sin(yaw) + y * cos(yaw);
+            // }
         }
         else if(num > 0){
             pcloud = lidar_buffer[num];
@@ -351,6 +346,7 @@ void create_pcd(){
             // if(num == 0){ // num == frame_num - 2
             //     *lastcloud = *cloud;
             // }
+            
             if(num == frame_num - 1){
                 *currentcloud = * cloud;
                 SegDynamic(lastcloud, currentcloud, pcloud->header);
@@ -361,7 +357,11 @@ void create_pcd(){
         
         num += 1;
     }
+    // if (flag == 0){
+    //     flag = 1;
+    // }
     mid_pcl = *cloudadd;
+    // *lastScan = *cloudadd;
     // std::cout<<"拼接点云"<<cloudadd->points.size()<<std::endl;
     pcl::toROSMsg(mid_pcl, pcl_new_msg);  //将点云转化为消息才能发布
     pub_pcl.publish(pcl_new_msg); //发布调整之后的点云数据，主题为/new_cloud
@@ -379,7 +379,7 @@ void callback(const sensor_msgs::PointCloud2::ConstPtr& pclMsg, const sensor_msg
         // std::cout<<"点云队列存储已满"<<std::endl;
     }
     lidar_buffer.push_back(pclMsg);
-    lastScan = lidar_buffer[0];
+    // lastScan = lidar_buffer[0];
     // gps数据
     sensor_msgs::NavSatFix::Ptr gpsmsg(new sensor_msgs::NavSatFix(*gpsMsg));
     // double lon, lat, alt;
