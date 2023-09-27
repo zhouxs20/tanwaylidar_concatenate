@@ -112,7 +112,7 @@ void rotz(double t, float matx[][3]){
 }
 
 //矩阵相乘函数（列1）
-void Multiply1(float a[], float b[], float c[][1], int n, int k, int m){
+void multiply1(float a[], float b[], float c[][1], int n, int k, int m){
     for (int i = 0; i < n; i++){
         for (int j = 0; j < m; j++){
             c[i][j] = 0;
@@ -124,7 +124,7 @@ void Multiply1(float a[], float b[], float c[][1], int n, int k, int m){
 }
 
 //矩阵相乘函数（列3）
-void Multiply3(float a[], float b[], float c[][3], int n, int k, int m){
+void multiply3(float a[], float b[], float c[][3], int n, int k, int m){
     for (int i = 0; i < n; i++){
         for (int j = 0; j < m; j++){
             c[i][j] = 0;
@@ -155,7 +155,7 @@ float **poses_from_oxts(Oxts oxts){
     rotz(oxts.yaw, Rz);
     float c[3][3] = {0};
     float R[3][3] = {0};
-    Multiply3(*Ry, *Rx, c, 3, 3, 3);
+    multiply3(*Ry, *Rx, c, 3, 3, 3);
 
     int z = 0;
     float Rz1[9],c1[9];
@@ -166,7 +166,7 @@ float **poses_from_oxts(Oxts oxts){
             z++;
         }
     }
-    Multiply3(Rz1, c1, R, 3, 3, 3);
+    multiply3(Rz1, c1, R, 3, 3, 3);
 
     for(int i = 0; i<3; i++){
         t[i] = t[i] - t_0[i];
@@ -192,7 +192,7 @@ float **poses_from_oxts(Oxts oxts){
 /*
     方案二：通过前后帧对比来判断
 */
-void SegDynamic(PointCloudEX::Ptr lastCloud, PointCloudEX::Ptr curCloud, std_msgs::Header cheader){
+void seg_dynamic(PointCloudEX::Ptr lastCloud, PointCloudEX::Ptr curCloud, std_msgs::Header cheader){
     int curNum = curCloud->points.size(); // 当前点云的点数
     // 动态点云和静态点云
     PointCloudEX::Ptr dynCloud(new PointCloudEX); // 动态去除
@@ -288,7 +288,7 @@ void create_pcd(){
                 pc_array[2] = cloudadd->points[r].z;
                 pc_array[3] = 1.0;
                 float pc[4][1] = {0};
-                Multiply1(pose1, pc_array, pc, 4, 4, 1);
+                multiply1(pose1, pc_array, pc, 4, 4, 1);
                 // cloudadd->points[r].x = pc[0][0];
                 // cloudadd->points[r].y = pc[1][0];
                 x = pc[0][0];
@@ -310,7 +310,7 @@ void create_pcd(){
             //     pc_array[2] = scanback->points[r].z;
             //     pc_array[3] = 1.0;
             //     float pc[4][1] = {0};
-            //     Multiply1(pose1, pc_array, pc, 4, 4, 1);
+            //     multiply1(pose1, pc_array, pc, 4, 4, 1);
             //     // cloudadd->points[r].x = pc[0][0];
             //     // cloudadd->points[r].y = pc[1][0];
             //     x = pc[0][0];
@@ -333,7 +333,7 @@ void create_pcd(){
                 pc_array[2] = cloud->points[r].z;
                 pc_array[3] = 1.0;
                 float pc[4][1] = {0};
-                Multiply1(pose1, pc_array, pc, 4, 4, 1);
+                multiply1(pose1, pc_array, pc, 4, 4, 1);
                 // cloud->points[r].x = pc[0][0];
                 // cloud->points[r].y = pc[1][0];
                 
@@ -349,7 +349,7 @@ void create_pcd(){
             
             if(num == frame_num - 1){
                 *currentcloud = * cloud;
-                SegDynamic(lastcloud, currentcloud, pcloud->header);
+                seg_dynamic(lastcloud, currentcloud, pcloud->header);
             }
             *cloudadd = *cloudadd + *cloud;
             cloud->clear();

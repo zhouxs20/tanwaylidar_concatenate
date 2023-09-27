@@ -22,7 +22,7 @@ struct TanwayPCLEXPoint
   	int channel;
 	float angle;
 	int echo;
-	int block;				/*For duetto*/
+	int block;				/* For duetto */
   	unsigned int t_sec;     /* The value represents seconds since 1900-01-01 00:00:00 (the UNIX epoch).*/ 
 	unsigned int t_usec;    /* remaining microseconds */
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -62,7 +62,7 @@ typedef struct
     float center[3];
     float obb[8];
 
-    // 类别
+    // class
     int cls;
 
 } SClusterFeature;
